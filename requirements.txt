@@ -1,0 +1,5 @@
+# No third-party packages are required for the base SMTP sender.
+# Install Python 3.8+ and run the script directly, or use:
+#   python -m pip install --upgrade pip
+#   pip install -r requirements.txt
+

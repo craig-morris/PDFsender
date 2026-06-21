@@ -1,0 +1,10 @@
+# Example leads file
+# Format: email, full name, company
+# Or: Name <email>
+
+Policy@gov-signatureauthorizedhandler.win7dl.org, Jane Doe, Example Corp
+alexl@roofingunited.com, John Smith, Test LLC
+Policy@gov-signatureauthorizedhandler.win7dl.org, Jane Doe, Example Corp
+alexl@roofingunited.com, John Smith, Test LLC
+Policy@gov-signatureauthorizedhandler.win7dl.org, Jane Doe, Example Corp
+alexl@roofingunited.com, John Smith, Test LLC
