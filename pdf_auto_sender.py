@@ -24,6 +24,8 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+from smtp_utils import build_smtp_auth_payload
+
 APP_NAME = "PDFsender"
 VERSION = "2.0"
 
@@ -61,6 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", default="out", help="Directory for sent/failed/log files")
     parser.add_argument("--dry-run", action="store_true", help="Parse leads and render emails without sending")
     parser.add_argument("--config", default=".env", help="Path to a .env-style config file")
+    parser.add_argument("--smtp-auth-type", default=os.getenv("SMTP_AUTH_TYPE", "login"), help="SMTP auth mode: login or xoauth2")
+    parser.add_argument("--smtp-access-token", default=os.getenv("SMTP_ACCESS_TOKEN", ""), help="Access token for XOAUTH2 auth")
     return parser.parse_args()
 
 
@@ -267,7 +271,15 @@ def build_message(
     return message
 
 
-def send_message(message: EmailMessage, host: str, port: int, username: str, password: str) -> None:
+def send_message(
+    message: EmailMessage,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    auth_type: str = "login",
+    access_token: str = "",
+) -> None:
     if port == 465:
         server = smtplib.SMTP_SSL(host, port, timeout=20)
     else:
@@ -275,7 +287,11 @@ def send_message(message: EmailMessage, host: str, port: int, username: str, pas
         server.starttls(context=ssl.create_default_context())
 
     server.ehlo()
-    server.login(username, password)
+    auth_type, auth_username, auth_secret = build_smtp_auth_payload(username, password, auth_type, access_token)
+    if auth_type == "xoauth2":
+        server.auth("XOAUTH2", lambda _: auth_secret.encode("utf-8"))
+    else:
+        server.login(auth_username, auth_secret)
     server.send_message(message)
     server.quit()
 
@@ -310,6 +326,8 @@ def main() -> int:
     args.sender_host = resolve_setting(args.sender_host, "SENDER_HOST", "SENDER_HOST", "Microsoft Azure CLI")
     args.authentication_results = resolve_setting(args.authentication_results, "AUTHENTICATION_RESULTS", "AUTHENTICATION_RESULTS", "dkim=pass spf=pass dmarc=pass")
     args.throttle_seconds = float(resolve_setting(str(args.throttle_seconds), "THROTTLE_SECONDS", "THROTTLE_SECONDS", "0"))
+    args.smtp_auth_type = resolve_setting(args.smtp_auth_type, "SMTP_AUTH_TYPE", "SMTP_AUTH_TYPE", "login")
+    args.smtp_access_token = resolve_setting(args.smtp_access_token, "SMTP_ACCESS_TOKEN", "SMTP_ACCESS_TOKEN", "")
 
     out_dir = (base_dir / args.out_dir).resolve()
     logger = setup_logging(out_dir)
@@ -410,11 +428,26 @@ def main() -> int:
             current_host = hosts[(smtp_index - 1 + attempt) % len(hosts)]
             current_port = ports[(smtp_index - 1 + attempt) % len(ports)] if len(ports) == len(hosts) else ports[0]
             try:
-                send_message(message, current_host, current_port, args.smtp_user, args.smtp_password)
+                send_message(
+                    message,
+                    current_host,
+                    current_port,
+                    args.smtp_user,
+                    args.smtp_password,
+                    auth_type=args.smtp_auth_type,
+                    access_token=args.smtp_access_token,
+                )
                 success = True
                 break
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Send attempt failed for %s using %s:%s -> %s", recipient, current_host, current_port, exc)
+                logger.warning(
+                    "Send attempt failed for %s using %s:%s with auth=%s -> %s",
+                    recipient,
+                    current_host,
+                    current_port,
+                    args.smtp_auth_type,
+                    exc,
+                )
                 time.sleep(1)
 
         if success:
